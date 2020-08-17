@@ -67,6 +67,12 @@ enum trap_codes{
     TRAP_HALT = 0x25   /* halt the program */
 };
 
+// MEMORY MAPPED REGISTERS
+enum mmap_regs{
+    MR_KBSR = 0xFE00, /* keyboard status */
+    MR_KBDR = 0xFE02  /* keyboard data */
+};
+
 uint16_t mem_read(const uint16_t addr);
 uint16_t sign_extend(uint16_t x, int bit_count);
 void update_flags(uint16_t regNum);
@@ -88,5 +94,6 @@ void trap_puts();
 void trap_out();
 void trap_in();
 void trap_putsp();
-void trap_halt();
+void trap_halt(int* running);
+void trap_getc();
 void bad_opcode();

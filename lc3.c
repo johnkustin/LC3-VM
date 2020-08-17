@@ -22,8 +22,37 @@
 #include "lc3instructions.h"
 
 
-uint16_t read_image(char* argv[]){
-    return 0;
+
+/**
+ * swap16
+ * swaps endianness
+ */
+uint16_t swap16(uint16_t val){
+    return (val << 8) | (val >> 8);
+}
+
+void read_image_file(FILE* file){
+    // get origin to know where in memory to put the image
+    uint16_t origin;
+    fread(&origin, sizeof(origin), 1, file);
+    origin = swap16(origin);
+
+    uint16_t max_read = UINT16_MAX - origin;
+    uint16_t* mem_loc = ram + origin;
+    size_t read = fread(mem_loc, sizeof(uint16_t), max_read, file);
+
+    while (read-- > 0){
+        *mem_loc = swap16(*mem_loc);
+        mem_loc++;
+    }
+}
+
+int read_image(const char* image_path){
+    FILE* file = fopen(image_path, "rb");
+    if (!file) return 0;
+    read_image_file(file);
+    fclose(file);
+    return 1;
 }
 
 /**
@@ -44,31 +73,30 @@ void parse_args(int argc, char* argv[]){
     }
 }
 
-void run_trap_switch(uint16_t instruxn){
-    reg[R_7] = reg[R_PC]; // save program counter for after trap code exec
+void run_trap_switch(uint16_t instruxn, int* running){
     switch (instruxn & 0xFF){
         case TRAP_GETC:
-            {TRAP GETC, 9}
+            trap_getc();
             break;
         case TRAP_OUT:
-            {TRAP OUT, 9}
+            trap_out();
             break;
         case TRAP_PUTS:
-            {TRAP PUTS, 8}
+            trap_puts();
             break;
         case TRAP_IN:
-            {TRAP IN, 9}
+            trap_in();
             break;
         case TRAP_PUTSP:
-            {TRAP PUTSP, 9}
+            trap_putsp();
             break;
         case TRAP_HALT:
-            {TRAP HALT, 9}
+            trap_halt(running);
             break;
     }
 }
 
-void run_opcode_switch(uint8_t opcode, uint16_t instruxn){
+void run_opcode_switch(uint8_t opcode, uint16_t instruxn, int* active){
     switch (opcode)
         {
         case OP_ADD:
@@ -111,7 +139,7 @@ void run_opcode_switch(uint8_t opcode, uint16_t instruxn){
                 instr_str(instruxn);
                 break;
             case OP_TRAP:
-                run_trap_switch(instruxn);
+                run_trap_switch(instruxn, active);
                 break;
             case OP_RES:
             case OP_RTI:
@@ -121,14 +149,38 @@ void run_opcode_switch(uint8_t opcode, uint16_t instruxn){
         }
 }
 
+// INPUT BUFFERING
+struct termios original_tio;
 
+void disable_input_buffering()
+{
+    tcgetattr(STDIN_FILENO, &original_tio);
+    struct termios new_tio = original_tio;
+    new_tio.c_lflag &= ~ICANON & ~ECHO;
+    tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
+}
+
+void restore_input_buffering()
+{
+    tcsetattr(STDIN_FILENO, TCSANOW, &original_tio);
+}
+
+// INTERRUPT HANDLING
+void handle_interrupt(int signal){
+    restore_input_buffering();
+    printf("\n");
+    exit(-2);
+}
 
 // MAIN LOOP OF EXECUTION
 int main(int argc, char* argv[]){
 
     // load CL args
+    parse_args(argc, argv);
 
     // setup
+    signal(SIGINT, handle_interrupt);
+    disable_input_buffering();
 
     // init PC
     uint16_t PC_START  = 0x3000;
@@ -139,8 +191,9 @@ int main(int argc, char* argv[]){
         // fetch instruction
         uint16_t instruxn = mem_read(reg[R_PC]++);
         uint8_t opcode = instruxn >> 12;
-        run_opcode_switch(opcode, instruxn);
+        run_opcode_switch(opcode, instruxn, &active);
     }
 
     // shutdown sequence
+    restore_input_buffering();
 }

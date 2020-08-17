@@ -1,11 +1,32 @@
 #include "lc3instructions.h"
 
 
+// unix check_key
+uint16_t check_key(){
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(STDIN_FILENO, &readfds);
+
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
+    return select(1, &readfds, NULL, NULL, &timeout) != 0;
+}
+
 /**
  * mem_read
  * reads from RAM
  */
 uint16_t mem_read(uint16_t addr){
+    if (addr == MR_KBSR){
+        if (check_key()){
+            ram[MR_KBSR] = 1 << 15;
+            ram[MR_KBDR] = getchar();
+        }
+        else{
+            ram[MR_KBSR] = 0;
+        }  
+    }
     return ram[addr];
 }
 
@@ -74,22 +95,6 @@ void instr_add(uint16_t instr){
         reg[dest_reg] = reg[src_reg_1] + reg[src_reg_2];
     }
 
-    update_flags(dest_reg);
-}
-
-/**
- * instr_ldi
- * implements the load indirect instruction
- * ldi encoding:
- * [15-12] 0b1010
- * [11-9] destination reg
- * [8-0] program counter offset
- */
-void instr_ldi(uint16_t instr){
-    uint8_t dest_reg = (instr >> 9) & 0b111;
-    uint16_t pc_offset = sign_extend((instr & 0x1FF), 9);
-    /* increment current PC by pc_offset, read memory at that location in RAM into dest_reg */
-    reg[dest_reg] = mem_read(reg[R_PC] + pc_offset);
     update_flags(dest_reg);
 }
 
@@ -175,15 +180,15 @@ void instr_jmp(uint16_t instr){
  * [5-0] 0
  */
 void instr_jsr(uint16_t instr){
-    uint8_t isRegister = instr & (1 << 11);
+    uint8_t isRegister = (instr >> 11) & 1;
     reg[R_7] = reg[R_PC];
     if (isRegister){
         uint16_t pc_offset = (instr << 5) >> 5;
         reg[R_PC] += sign_extend(pc_offset, 11);
     }
     else{
-        uint8_t base_reg = instr & (0b111 << 6);
-        reg[R_PC] = base_reg;
+        uint8_t base_reg = (instr >> 6) & 0x7;
+        reg[R_PC] = reg[base_reg];
     }
 }
 
@@ -196,13 +201,13 @@ void instr_jsr(uint16_t instr){
  * [8-0] program counter offset
  */
 void instr_ld(uint16_t instr){
-    uint8_t dest_reg = instr & (0b111 << 9);
+    uint8_t dest_reg = (instr >> 9) & 0x7;
     reg[dest_reg] = mem_read(reg[R_PC] + sign_extend(instr & 0x1FF, 9));
     update_flags(dest_reg);
 }
 
 /**
- * instr_ld
+ * instr_ldi
  * implements the load indirect instruction
  * encoding
  * [15-12] 0b1010
@@ -210,10 +215,11 @@ void instr_ld(uint16_t instr){
  * [8-0] program counter offset
  */
 void instr_ldi(uint16_t instr){
-    uint8_t dest_reg = instr & (0b111 << 9);
+    uint8_t dest_reg = (instr >> 9) & 0x7;
     reg[dest_reg] = mem_read(mem_read(reg[R_PC] + sign_extend(instr & 0x1FF, 9)));
     update_flags(dest_reg);
 }
+
 
 /** 
  * instr_ldr
@@ -225,8 +231,8 @@ void instr_ldi(uint16_t instr){
  * [5-0] offset
  */
 void instr_ldr(uint16_t instr){
-    uint8_t dest_reg = instr & (0b111 << 9);
-    uint8_t base_reg = instr & (0b111 << 6);
+    uint8_t dest_reg = (instr >> 9) & 0x7;
+    uint8_t base_reg = (instr >> 6) & 0x7;
     reg[dest_reg] = mem_read(reg[base_reg] + sign_extend(instr & 0x3F, 6));
     update_flags(dest_reg);
 }
@@ -240,7 +246,7 @@ void instr_ldr(uint16_t instr){
  * [8-0] program counter offset
  */
 void instr_lea(uint16_t instr){
-    uint8_t dest_reg = instr & (0b111 << 9);
+    uint8_t dest_reg = (instr >> 9) & 0x7;
     reg[dest_reg] = reg[R_PC] + sign_extend(instr & 0x1FF, 9);
     update_flags(dest_reg);
 }
@@ -256,8 +262,8 @@ void instr_lea(uint16_t instr){
  * [4-0] 1
  */
 void instr_not(uint16_t instr){
-    uint8_t dest_reg = instr & (0b111 << 9);
-    uint8_t src_reg = instr & (0b111 << 6);
+    uint8_t dest_reg = (instr >> 9) & 0x7;
+    uint8_t src_reg = (instr >> 6) & 0x7;
     reg[dest_reg] = ~(reg[src_reg]);
     update_flags(dest_reg);
 }
@@ -271,7 +277,7 @@ void instr_not(uint16_t instr){
  * [8-0] program counter offset
  */
 void instr_st(uint16_t instr){
-    uint8_t src_reg = instr & (0b111 << 9);
+    uint8_t src_reg = (instr >> 9) & 0x7;
     mem_write(reg[R_PC] + sign_extend(instr & 0x1FF, 9), reg[src_reg]);
 }
 
@@ -284,7 +290,7 @@ void instr_st(uint16_t instr){
  * [8-0] program counter offset
  */
 void instr_sti(uint16_t instr){
-    uint8_t src_reg = instr & (0b111 << 9);
+    uint8_t src_reg = (instr >> 9) & 0x7;
     mem_write(mem_read(reg[R_PC] + sign_extend(instr & 0x1FF, 9)), reg[src_reg]);
 }
 
@@ -298,8 +304,8 @@ void instr_sti(uint16_t instr){
  * [5-0] offset
  */
 void instr_str(uint16_t instr){
-    uint8_t src_reg = instr & (0b111 << 9);
-    uint8_t base_reg = instr & (0b111 << 6);
+    uint8_t src_reg = (instr >> 9 ) & 0x7;
+    uint8_t base_reg = (instr >> 6) & 0x7;
     mem_write(reg[base_reg] + sign_extend(instr & 0x3F, 6), reg[src_reg]);
 }
 
@@ -344,7 +350,6 @@ void trap_in(){
     char c = getchar();
     putc(c, stdout);
     reg[R_0] = (uint16_t)c;
-    fflush(stdout);
 }
 
 /**
@@ -357,6 +362,18 @@ void trap_putsp(){
         char char1 = (*c) & 0xFF;
         putc(char1, stdout);
         char char2 = (*c) >> 8;
-        if 
+        if (char2) putc(char2, stdout);
+        c++; // lmao c++ again
     }
+    fflush(stdout);
+}
+
+/**
+ * trap_halt
+ * halts execution and prints a message to console
+ */
+void trap_halt(int* running){
+    puts("HALT");
+    fflush(stdout);
+    *running = 0;
 }
