@@ -183,7 +183,7 @@ void instr_jsr(uint16_t instr){
     uint8_t isRegister = (instr >> 11) & 1;
     reg[R_7] = reg[R_PC];
     if (isRegister){
-        uint16_t pc_offset = (instr << 5) >> 5;
+        uint16_t pc_offset = instr & 0x7FF;
         reg[R_PC] += sign_extend(pc_offset, 11);
     }
     else{
